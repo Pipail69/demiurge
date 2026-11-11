@@ -93,7 +93,9 @@ export class EntityAllocator {
     this.aliveCount--;
   }
 
+  /** Faux pour toute valeur qui n'est pas un entier sûr ≥ 0 (p. ex. 0.5, NaN, -1). */
   isAlive(e: Entity): boolean {
+    if (!Number.isSafeInteger(e) || e < 0) return false;
     const index = entityIndex(e);
     return (
       index < this.highWater &&

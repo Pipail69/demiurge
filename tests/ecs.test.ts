@@ -11,13 +11,49 @@ function makeWorld(seed = 1, initialCapacity?: number) {
 }
 
 describe('Poignées d\'entité', () => {
-  it('encodage index + génération (21 bits), réversible et < 2^53', () => {
-    for (const [i, g] of [[0, 0], [5, 3], [0xffffffff, GENERATION_MASK], [123456, 2 ** 21 + 7]] as const) {
-      const e = makeEntity(i, g);
-      expect(Number.isSafeInteger(e)).toBe(true);
-      expect(entityIndex(e)).toBe(i);
-      expect(entityGeneration(e)).toBe(g & GENERATION_MASK);
+  it('encodage index + génération : valeurs littérales calculées à la main', () => {
+    // poignée = (génération mod 2^21) × 2^32 + index
+    expect(makeEntity(0, 0)).toBe(0);
+    expect(makeEntity(5, 3)).toBe(12884901893); // 3 × 4294967296 + 5
+    expect(makeEntity(0xffffffff, 2097151)).toBe(9007199254740991); // (2^21−1)·2^32 + (2^32−1) = 2^53 − 1 (Number.MAX_SAFE_INTEGER)
+    expect(makeEntity(7, 2097152)).toBe(7); // 2^21 ≡ 0 (mod 2^21)
+    expect(makeEntity(123456, 2097159)).toBe(30064894528); // 7 × 4294967296 + 123456
+    expect(entityIndex(12884901893)).toBe(5);
+    expect(entityGeneration(12884901893)).toBe(3);
+    expect(entityIndex(9007199254740991)).toBe(4294967295);
+    expect(entityGeneration(9007199254740991)).toBe(2097151);
+    expect(GENERATION_MASK).toBe(2097151);
+  });
+
+  it('poignées non entières, négatives ou non sûres : jamais vivantes, toujours refusées', () => {
+    const { world, Pos } = makeWorld();
+    const e0 = world.createEntity();
+    expect(e0).toBe(0);
+    for (const bad of [0.5, -1, -0.5, NaN, Infinity, 2 ** 53, 1e300]) {
+      expect(world.isAlive(bad), String(bad)).toBe(false);
+      expect(() => world.destroyEntity(bad)).toThrow(/périmée/);
+      expect(() => world.addComponent(bad, Pos)).toThrow(/périmée/);
     }
+    expect(world.isAlive(e0)).toBe(true);
+    expect(world.entities.aliveCount).toBe(1);
+  });
+
+  it('LIMITE CONNUE (décision ouverte avant T5) : après 2^21 recyclages d\'un emplacement, une poignée périmée redevient « vivante »', () => {
+    // Génération sur 21 bits dans la poignée + liste libre LIFO : l'emplacement 0 est recyclé
+    // à chaque cycle. Ce test DOCUMENTE le comportement actuel ; il n'est pas souhaitable.
+    const { world } = makeWorld();
+    const stale = world.createEntity();
+    world.destroyEntity(stale);
+    expect(world.isAlive(stale)).toBe(false);
+    let current = world.createEntity();
+    for (let k = 1; k < 2 ** 21; k++) {
+      world.destroyEntity(current);
+      current = world.createEntity();
+    }
+    expect(entityIndex(current)).toBe(0);
+    expect(world.entities.generation[0]).toBe(2 ** 21); // génération complète conservée en uint32
+    expect(world.isAlive(stale)).toBe(true); // ABA : la poignée de la 1re entité est acceptée
+    expect(current).toBe(stale);
   });
 });
 
@@ -68,6 +104,58 @@ describe('ECS : entités', () => {
     expect(Pos.present.length).toBe(16);
     for (let i = 0; i < 9; i++) expect(Pos.fields.x[i]).toBe(i);
     expect(handles.every((h) => world.isAlive(h))).toBe(true);
+  });
+});
+
+describe('ECS : validations', () => {
+  it('poignée périmée refusée par addComponent / removeComponent / hasComponent / destroyEntity', () => {
+    const { world, Pos } = makeWorld();
+    const e = world.createEntity();
+    world.addComponent(e, Pos);
+    world.destroyEntity(e);
+    const recycled = world.createEntity(); // même index, génération suivante
+    world.addComponent(recycled, Pos);
+    expect(entityIndex(recycled)).toBe(entityIndex(e));
+    expect(() => world.addComponent(e, Pos)).toThrow(/périmée/);
+    expect(() => world.removeComponent(e, Pos)).toThrow(/périmée/);
+    expect(() => world.hasComponent(e, Pos)).toThrow(/périmée/);
+    expect(() => world.destroyEntity(e)).toThrow(/périmée/);
+    expect(world.isAlive(recycled)).toBe(true);
+    expect(world.hasComponent(recycled, Pos)).toBe(true);
+  });
+
+  it('store d\'un autre monde refusé par addComponent / removeComponent / hasComponent / query', () => {
+    const { world } = makeWorld();
+    const other = makeWorld();
+    const e = world.createEntity();
+    expect(() => world.addComponent(e, other.Pos)).toThrow(/non enregistré/);
+    expect(() => world.removeComponent(e, other.Pos)).toThrow(/non enregistré/);
+    expect(() => world.hasComponent(e, other.Pos)).toThrow(/non enregistré/);
+    expect(() => world.query([other.Pos], () => {})).toThrow(/non enregistré/);
+  });
+
+  it('release remet alive à 0 (observable par le tableau, isAlive et le hash)', () => {
+    const { world } = makeWorld();
+    const a = world.createEntity();
+    world.createEntity();
+    const h1 = hashWorld(world);
+    world.destroyEntity(a);
+    expect(world.entities.alive[0]).toBe(0);
+    expect(world.isAlive(a)).toBe(false);
+    expect(world.entities.aliveCount).toBe(1);
+    expect(hashWorld(world)).not.toBe(h1);
+  });
+
+  it('la liste libre ne garde aucun résidu au-delà de freeCount ; pas de croissance si elle n\'est pas vide', () => {
+    const { world } = makeWorld(1, 4);
+    const es = Array.from({ length: 4 }, () => world.createEntity());
+    world.destroyEntity(es[1]!);
+    world.destroyEntity(es[2]!);
+    world.createEntity();
+    world.createEntity();
+    expect(world.entities.freeCount).toBe(0);
+    expect(Array.from(world.entities.freeList)).toEqual([0, 0, 0, 0]);
+    expect(world.entities.capacity).toBe(4); // capacité pleine, liste libre utilisée d'abord
   });
 });
 

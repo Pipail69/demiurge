@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { assertLittleEndian, detectLittleEndian, hashWorld } from '../src/core/hash.ts';
 import { step, World } from '../src/core/ecs/world.ts';
 import { buildWorkload } from './fixtures/workload.ts';
@@ -95,5 +95,129 @@ describe('hashWorld', () => {
   it('le hash ne modifie pas le monde (idempotent)', () => {
     const s = sample();
     expect(hashWorld(s.world)).toBe(hashWorld(s.world));
+  });
+
+  describe('sensibilité par section (états construits pour que la section compte seule)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('graine : deux graines ramenées au même état PRNG → hashs différents', () => {
+      const a = new World(1);
+      const b = new World(2);
+      b.rng.setState(a.rng.getState());
+      expect(hashWorld(a)).not.toBe(hashWorld(b));
+    });
+
+    it('chacun des 4 mots du PRNG', () => {
+      const base = new World(1);
+      const h0 = hashWorld(base);
+      const st = base.rng.getState();
+      const seen = new Set([h0]);
+      for (let k = 0; k < 4; k++) {
+        const w = new World(1);
+        const m = Array.from(st);
+        m[k] = (m[k]! ^ 0x80000000) >>> 0;
+        w.rng.setState(m);
+        const h = hashWorld(w);
+        expect(h, `mot ${k}`).not.toBe(h0);
+        seen.add(h);
+      }
+      expect(seen.size).toBe(5);
+    });
+
+    it('highWater : emplacement supplémentaire entièrement nul', () => {
+      const a = new World(1);
+      const b = new World(1);
+      b.entities.highWater = 1; // emplacement 0 : mort, génération 0, hors liste libre
+      expect(hashWorld(a)).not.toBe(hashWorld(b));
+    });
+
+    it('alive, générations, liste libre : modification directe d\'un seul tableau', () => {
+      const make = () => {
+        const w = new World(1);
+        for (let k = 0; k < 3; k++) w.createEntity();
+        return w;
+      };
+      const h0 = hashWorld(make());
+      const alive = make();
+      alive.entities.alive[1] = 0;
+      const gen = make();
+      gen.entities.generation[2] = 5;
+      const free = make();
+      free.entities.freeList[0] = 1;
+      free.entities.freeCount = 1;
+      const hs = [hashWorld(alive), hashWorld(gen), hashWorld(free)];
+      for (const h of hs) expect(h).not.toBe(h0);
+      expect(new Set([h0, ...hs]).size).toBe(4);
+    });
+
+    it('nombre de composants, nom, schéma (mêmes données nulles)', () => {
+      const mk = (name: string, schema: Record<string, 'u8' | 'i8'>, extra = false) => {
+        const w = new World(1);
+        w.registerComponent(name, schema);
+        if (extra) w.registerComponent('Z', { z: 'u8' });
+        w.createEntity();
+        return hashWorld(w);
+      };
+      const h0 = mk('A', { v: 'u8' });
+      const hs = [mk('B', { v: 'u8' }), mk('A', { v: 'i8' }), mk('A', { w: 'u8' }), mk('A', { v: 'u8' }, true)];
+      expect(new Set([h0, ...hs]).size).toBe(5);
+    });
+
+    it('dernier emplacement [highWater−1] : alive, présence et chaque champ', () => {
+      const mk = () => {
+        const w = new World(1);
+        const C = w.registerComponent('C', { a: 'f32', b: 'i32', c: 'u8' });
+        for (let k = 0; k < 5; k++) w.createEntity();
+        return { w, C, last: w.entities.highWater - 1 };
+      };
+      const h0 = hashWorld(mk().w);
+      const mods: Array<(x: ReturnType<typeof mk>) => void> = [
+        (x) => { x.w.entities.alive[x.last] = 0; },
+        (x) => { x.C.present[x.last] = 1; },
+        (x) => { x.C.fields.a[x.last] = 1; },
+        (x) => { x.C.fields.b[x.last] = -1; },
+        (x) => { x.C.fields.c[x.last] = 1; },
+      ];
+      const hs = mods.map((m) => {
+        const x = mk();
+        m(x);
+        return hashWorld(x.w);
+      });
+      for (const h of hs) expect(h).not.toBe(h0);
+      expect(new Set([h0, ...hs]).size).toBe(mods.length + 1);
+    });
+
+    it('emplacement d\'index ≥ 64 (au-delà de la capacité initiale) : présence et champs', () => {
+      const mk = () => {
+        const w = new World(1);
+        const C = w.registerComponent('C', { a: 'f64', b: 'u16' });
+        for (let k = 0; k < 130; k++) w.createEntity();
+        return { w, C };
+      };
+      const h0 = hashWorld(mk().w);
+      for (const idx of [64, 100, 129]) {
+        const p = mk();
+        p.C.present[idx] = 1;
+        const a = mk();
+        a.C.fields.a[idx] = 0.5;
+        const b = mk();
+        b.C.fields.b[idx] = 7;
+        const hs = [hashWorld(p.w), hashWorld(a.w), hashWorld(b.w)];
+        expect(new Set([h0, ...hs]).size, `index ${idx}`).toBe(4);
+      }
+    });
+
+    it('hashWorld appelle effectivement la garde de boutisme (plateforme gros-boutiste simulée)', () => {
+      const w = new World(1);
+      expect(() => hashWorld(w)).not.toThrow();
+      // Faux Uint16Array dont l'octet de poids faible est stocké en second (gros-boutiste).
+      class BigEndianUint16 {
+        readonly buffer = new Uint8Array([0, 1]).buffer;
+      }
+      vi.stubGlobal('Uint16Array', BigEndianUint16);
+      expect(() => hashWorld(w)).toThrow(/gros-boutiste/);
+    });
   });
 });

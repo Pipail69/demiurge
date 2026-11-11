@@ -47,15 +47,17 @@ describe('Critère (c) : le cœur tourne sans navigateur', () => {
   it('Vitest tourne en environnement node : pas de window ni de document pendant l\'exécution du cœur', () => {
     const { world } = buildWorkload(DEMO_SEED);
     const observed: string[] = [];
-    world.addSystem(() => {
-      observed.push(typeof window, typeof document, typeof navigator === 'undefined' ? 'undefined' : 'node-navigator');
+    world.addSystem((w) => {
+      observed.push(`${w.tick}:${typeof window}:${typeof document}:${typeof requestAnimationFrame}`);
     });
-    for (let t = 0; t < 10; t++) step(world);
-    expect(observed.length).toBe(30);
-    for (let k = 0; k < observed.length; k += 3) {
-      expect(observed[k]).toBe('undefined'); // window
-      expect(observed[k + 1]).toBe('undefined'); // document
-    }
+    for (let t = 0; t < 3; t++) step(world);
+    // Le système a réellement tourné à chaque tick, et rien du navigateur n'existait.
+    expect(observed).toEqual([
+      '0:undefined:undefined:undefined',
+      '1:undefined:undefined:undefined',
+      '2:undefined:undefined:undefined',
+    ]);
+    expect(typeof process.versions.node).toBe('string');
   });
 
   it('analyse statique : aucun fichier de src/core n\'importe hors de src/core', () => {

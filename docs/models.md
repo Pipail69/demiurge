@@ -34,21 +34,29 @@ Aucun système de jeu (terrain, agents, etc.) n'existe encore : T0 ne pose que l
   Conséquence : l'ordre des tirages fait partie de l'histoire (changer l'ordre des systèmes
   change l'histoire — c'est voulu et testé).
 
-### Amorçage
+### Amorçage (révisé après relecture, 2026-11-11)
 
 - Graine : entier uint32 (`[0, 2^32)`), sinon `RangeError`.
-- **[choix d'ingénierie]** « SplitMix32 » : 4 sorties successives de
+- **[recommandation publiée]** SplitMix64 (Steele, Lea & Flood, OOPSLA 2014 ; code C de
+  référence `splitmix64.c` de S. Vigna), que Blackman & Vigna recommandent pour amorcer
+  la famille xoshiro :
   ```
-  x = (x + 0x9E3779B9) mod 2^32
-  z = x;  z = (z ^ z>>>16) * 0x85EBCA6B;  z = (z ^ z>>>13) * 0xC2B2AE35;  z ^= z>>>16
+  x = (x + 0x9E3779B97F4A7C15) mod 2^64
+  z = x;  z = (z ^ z>>30) * 0xBF58476D1CE4E5B9;  z = (z ^ z>>27) * 0x94D049BB133111EB;  z ^= z>>31
   ```
-  Les constantes sont celles du finaliseur `fmix32` de MurmurHash3 (A. Appleby) et de
-  l'incrément « nombre d'or » de SplitMix64 (Steele, Lea & Flood 2014). Ce n'est PAS un
-  standard publié en tant que tel : c'est l'adaptation 32 bits usuelle de l'amorçage
-  recommandé par Vigna (qui utilise SplitMix64).
+  État initial de SplitMix64 = la graine (uint32 étendue à 64 bits). Deux sorties z1, z2 ;
+  état xoshiro = `[bas32(z1), haut32(z1), bas32(z2), haut32(z2)]` — **[convention publiée]**
+  de `seed_from_u64` de la crate Rust `rand_xoshiro` (remplissage des octets par SplitMix64,
+  lecture petit-boutiste des mots). Calcul en `BigInt`, une fois par monde.
+- Pourquoi ce changement : l'amorçage précédent (« SplitMix32 » maison, incrément 32 bits
+  0x9E3779B9) donnait aux graines s et s + 0x9E3779B9 des états partageant 3 mots sur 4,
+  décalés d'une position. Avec SplitMix64, deux graines uint32 diffèrent de moins de 2^32 et
+  ne peuvent pas différer de l'incrément 64 bits : pas de recouvrement décalé de ce type
+  (testé sur un échantillon, avec contrôle négatif sur l'ancien amorçage).
 - Garde contre l'état tout-à-zéro (point fixe de xoshiro) : si les 4 mots valent 0, `s[0] := 1`.
-  `fmix32` étant une bijection et les 4 entrées distinctes, au plus un mot peut être nul :
-  la garde est inatteignable en pratique. `setState([0,0,0,0])` lève une erreur.
+  La sortie de SplitMix64 est une bijection de son état et les deux états utilisés sont
+  distincts : au plus une sortie est nulle, la garde est inatteignable. `setState([0,0,0,0])`
+  lève une erreur.
 
 ### Conversions
 
@@ -63,12 +71,20 @@ Aucun système de jeu (terrain, agents, etc.) n'existe encore : T0 ne pose que l
 
 ### Ce qui est vérifié, et comment (`tests/rng.test.ts`)
 
-- **Vérification croisée, PAS vecteurs publiés** : je ne disposais pas de vecteurs de test
-  publiés et vérifiables pour xoshiro128**. Le test contient une implémentation de référence
-  indépendante en `BigInt`, transcrite directement de l'algorithme C ci-dessus, et compare
-  5 000 tirages × 8 graines (dont 0 et 2^32−1) ainsi que l'état final. L'amorçage SplitMix32
-  est vérifié de la même manière. Cela prouve la conformité à l'algorithme tel que transcrit,
-  pas l'absence d'erreur de transcription commune aux deux versions.
+- **Vecteurs publiés** :
+  - SplitMix64, graine 1234567 → 5 premières sorties (tâche « Pseudo-random numbers/Splitmix64 »
+    de Rosetta Code) ; graine 1477776061723855037 → 5 premières sorties (test `reference` de
+    `splitmix64.rs`, crate `rand_xoshiro`). Les deux suites ont aussi été recalculées avec une
+    transcription de `splitmix64.c` compilée par gcc (identiques).
+  - xoshiro128**, état [1,2,3,4] → 10 premières sorties (test `reference` de
+    `xoshiro128starstar.rs`, `rand_xoshiro` 0.8.1, lu sur docs.rs ; valeurs recalculées avec le
+    C de référence compilé par gcc). Attention : d'anciennes copies de cette crate (p. ex. la
+    copie vendue dans Fuchsia) portent la suite 5760, 40320, … de la première version de
+    xoshiro128** (brouilleur sur s[0]) ; la version actuelle de l'algorithme utilise s[1].
+- **Vérification croisée** : implémentation de référence BigInt indépendante dans le test,
+  transcrite de l'algorithme C, comparée sur 5 000 tirages × 8 graines et sur l'état final ;
+  l'amorçage est comparé à une transcription BigInt de SplitMix64 et à des états épinglés
+  calculés par le C compilé.
 - Même graine → même suite ; graines voisines → suites différentes.
 - Bornes de `nextU32`, `nextFloat` ∈ [0,1), `nextInt` (n = 1, 2, …, 2^32) et refus des entrées invalides.
 - Uniformité grossière : chi-deux de `nextInt(10)` sur 100 000 tirages < 27,877 (quantile
@@ -85,8 +101,13 @@ Aucun système de jeu (terrain, agents, etc.) n'existe encore : T0 ne pose que l
   d'enregistrement, puis incrémente `world.tick`. Pendant le tick n (0-indexé), les systèmes
   lisent `world.tick = n`. Un système ajouté pendant un tick ne s'exécute qu'au tick suivant.
 - **[choix d'ingénierie]** Accumulateur : `advance(elapsedMs)` ajoute le temps réel fourni par
-  l'APPELANT (le cœur ne lit jamais d'horloge), exécute `floor(acc / stepMs)` ticks au plus
-  `maxStepsPerAdvance`, et renvoie le nombre de ticks exécutés.
+  l'APPELANT (le cœur ne lit jamais d'horloge) à `acc`, puis, tant que `acc >= stepMs` et que
+  le plafond n'est pas atteint : un tick, puis `acc -= stepMs` (SOUSTRACTION RÉPÉTÉE en double,
+  pas `floor(acc / stepMs)`). Renvoie le nombre de ticks exécutés. Les arrondis comptent :
+  avec `stepMs = 1000/30`, `advance(100)` exécute 2 ticks (et non 3) et garde un reste
+  `33.33333333333332 < stepMs` ; 10 × `advance(100)` → 29 ticks ; 24 h en trames de
+  1000/60 ms → exactement 2 592 000 ticks (chiffres constatés par exécution, épinglés par
+  des tests). Le reste n'est jamais perdu hors abandon.
 - **[choix d'ingénierie]** Plafond de rattrapage (anti « spirale de la mort ») : si, après
   `maxStepsPerAdvance` ticks, il reste au moins un pas entier de retard, ce retard est
   abandonné ; seule la fraction de pas (`acc mod stepMs`) est conservée. Le retard abandonné
@@ -133,8 +154,13 @@ Aucun système de jeu (terrain, agents, etc.) n'existe encore : T0 ne pose que l
 1. L'état logique se limite à `[0, highWater)` ; la capacité allouée n'y figure pas (le hash
    est identique pour toute capacité — testé).
 2. **Forme canonique** : un emplacement mort, ou un composant absent, a tous ses champs à 0 et
-   `present = 0`. Assuré par la mise à zéro au retrait de composant et à la destruction
-   d'entité. Ainsi deux histoires menant au même état logique ont le même hash.
+   `present = 0`. Le cœur remet à zéro au retrait de composant et à la destruction d'entité ;
+   `addComponent` ne remet PAS à zéro (il suppose l'invariant déjà vrai). L'invariant repose
+   donc aussi sur la DISCIPLINE DES SYSTÈMES : écrire dans le champ d'un composant absent,
+   dans un emplacement après `destroyEntity` (p. ex. dans un callback de `query`) ou au-delà de
+   `highWater` n'est ni empêché ni détecté, et casserait l'égalité « même état logique ⇒ même
+   hash ». Décision ouverte (STATE.md) : validateur `assertCanonical` en mode test et/ou remise
+   à zéro dans `addComponent`.
 3. `freeList[freeCount..]` est remis à 0 à chaque dépilement (aucun résidu, bien que non haché).
 4. `aliveCount` = nombre d'entités vivantes (dérivé, non haché).
 5. Ajout d'un composant déjà présent, retrait d'un composant absent, opération sur une poignée

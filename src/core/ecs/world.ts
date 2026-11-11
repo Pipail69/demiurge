@@ -72,6 +72,7 @@ export class World {
 
   hasComponent(e: Entity, store: ComponentStore<Schema>): boolean {
     this.assertAlive(e, 'hasComponent');
+    this.assertOwned(store);
     return store.present[entityIndex(e)] === 1;
   }
 

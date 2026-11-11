@@ -4,7 +4,8 @@
  * - État : 4 × uint32 dans un Uint32Array(4), lisible et restaurable (instantanés futurs).
  * - Uniquement des opérations entières 32 bits (Math.imul, décalages, >>> 0) : la suite
  *   produite est identique au bit près sur tout moteur JavaScript conforme.
- * - Amorçage : graine uint32 → 4 sorties d'un SplitMix32 (voir docs/models.md).
+ * - Amorçage : graine uint32 → 2 sorties de SplitMix64 (recommandation publiée de
+ *   Blackman & Vigna ; voir docs/models.md).
  *
  * Règle du projet : UN SEUL générateur par monde, possédé par le monde. Aucun sous-flux.
  */
@@ -22,17 +23,21 @@ function assertU32(value: number, what: string): void {
   }
 }
 
+const MASK_64 = 0xffffffffffffffffn;
+
 /**
- * SplitMix32 : incrément par la constante du nombre d'or (0x9E3779B9), puis le
- * finaliseur « fmix32 » de MurmurHash3. Sert UNIQUEMENT à dériver l'état initial.
- * Renvoie l'état interne avancé et la sortie.
+ * SplitMix64 (G. Steele, D. Lea, C. Flood 2014 ; code C de référence de S. Vigna,
+ * splitmix64.c) : générateur recommandé par Blackman & Vigna pour amorcer xoshiro.
+ * Sert UNIQUEMENT à dériver l'état initial (une fois par monde). BigInt : arithmétique
+ * 64 bits exacte, déterministe sur tout moteur.
+ * Renvoie l'état avancé et la sortie (uint64).
  */
-function splitMix32(state: number): { state: number; out: number } {
-  const next = (state + 0x9e3779b9) >>> 0;
+export function splitMix64Next(state: bigint): { state: bigint; out: bigint } {
+  const next = (state + 0x9e3779b97f4a7c15n) & MASK_64;
   let z = next;
-  z = Math.imul(z ^ (z >>> 16), 0x85ebca6b) >>> 0;
-  z = Math.imul(z ^ (z >>> 13), 0xc2b2ae35) >>> 0;
-  z = (z ^ (z >>> 16)) >>> 0;
+  z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & MASK_64;
+  z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & MASK_64;
+  z = z ^ (z >> 31n);
   return { state: next, out: z };
 }
 
@@ -42,15 +47,18 @@ export class Rng {
 
   constructor(seed: number) {
     assertU32(seed, 'La graine');
-    let sm = seed;
-    for (let i = 0; i < 4; i++) {
-      const r = splitMix32(sm);
-      sm = r.state;
-      this.state[i] = r.out;
-    }
-    // Garde contre l'état tout-à-zéro (point fixe de xoshiro). fmix32 étant une
-    // bijection et les 4 entrées distinctes, au plus une sortie peut valoir 0 :
-    // cette branche est inatteignable en pratique, elle reste par sûreté.
+    // État SplitMix64 = graine (uint32 étendue à 64 bits) ; deux sorties z1, z2.
+    // Convention de seed_from_u64 (rand_xoshiro / rand_core) : octets petit-boutistes,
+    // donc s = [bas32(z1), haut32(z1), bas32(z2), haut32(z2)].
+    const r1 = splitMix64Next(BigInt(seed));
+    const r2 = splitMix64Next(r1.state);
+    this.state[0] = Number(r1.out & 0xffffffffn);
+    this.state[1] = Number(r1.out >> 32n);
+    this.state[2] = Number(r2.out & 0xffffffffn);
+    this.state[3] = Number(r2.out >> 32n);
+    // Garde contre l'état tout-à-zéro (point fixe de xoshiro). La sortie de SplitMix64 est
+    // une bijection de son état et les deux états sont distincts : au plus une des deux
+    // sorties peut être nulle, la branche est inatteignable ; elle reste par sûreté.
     if ((this.state[0]! | this.state[1]! | this.state[2]! | this.state[3]!) === 0) {
       this.state[0] = 1;
     }

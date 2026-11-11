@@ -1,13 +1,76 @@
 import { describe, expect, it } from 'vitest';
 import { hashWorld } from '../src/core/hash.ts';
 import { DEFAULT_MAX_STEPS_PER_ADVANCE, DEFAULT_STEP_MS, FixedStepLoop } from '../src/core/loop.ts';
-import { World } from '../src/core/ecs/world.ts';
+import { step, World } from '../src/core/ecs/world.ts';
 import { buildWorkload } from './fixtures/workload.ts';
 
 describe('Boucle à pas fixe', () => {
-  it('valeurs par défaut : 1000/30 ms, plafond 8', () => {
+  it('valeurs par défaut : 1000/30 ms, plafond 8 — vérifiées par le comportement', () => {
     expect(DEFAULT_STEP_MS).toBe(1000 / 30);
     expect(DEFAULT_MAX_STEPS_PER_ADVANCE).toBe(8);
+    const loop = new FixedStepLoop(new World(1));
+    expect(loop.stepMs).toBe(1000 / 30);
+    expect(loop.advance(1000)).toBe(8); // 30 pas dus, plafonnés à 8
+    expect(loop.advance(1000 / 30)).toBe(1);
+  });
+
+  // Chiffres constatés par exécution (2026-11-11) avec stepMs = 1000/30 : la soustraction
+  // répétée en double laisse un reste à peine inférieur à stepMs, d'où 2 ticks pour 100 ms.
+  it('accumulateur réel : advance(100) → 2 ticks et reste conservé ; 10 × 100 ms → 29 ticks', () => {
+    const a = new FixedStepLoop(new World(1));
+    expect(a.advance(100)).toBe(2);
+    expect(a.accumulatorMs).toBe(33.33333333333332);
+    expect(a.accumulatorMs).toBeLessThan(a.stepMs);
+    expect(a.advance(0.00001)).toBe(1); // le reste n'est pas perdu
+    const b = new FixedStepLoop(new World(1));
+    let total = 0;
+    for (let i = 0; i < 10; i++) total += b.advance(100);
+    expect(total).toBe(29);
+    expect(b.world.tick).toBe(29);
+  });
+
+  it('24 h en trames de 1000/60 ms → exactement 2 592 000 ticks, rien d\'abandonné', () => {
+    const loop = new FixedStepLoop(new World(1));
+    const frames = 24 * 3600 * 60;
+    let total = 0;
+    for (let i = 0; i < frames; i++) total += loop.advance(1000 / 60);
+    expect(total).toBe(2_592_000);
+    expect(loop.world.tick).toBe(2_592_000);
+    expect(loop.droppedMs).toBe(0);
+  });
+
+  it('appels produisant 1, 2, …, 8 ticks chacun (jusqu\'au plafond) : même état qu\'en pas à pas', () => {
+    const seed = 777;
+    for (let perCall = 1; perCall <= DEFAULT_MAX_STEPS_PER_ADVANCE; perCall++) {
+      const viaLoop = buildWorkload(seed);
+      const loop = new FixedStepLoop(viaLoop.world, { stepMs: 10 });
+      const calls = Math.ceil(120 / perCall);
+      for (let c = 0; c < calls; c++) expect(loop.advance(perCall * 10)).toBe(perCall);
+      const direct = buildWorkload(seed);
+      for (let t = 0; t < calls * perCall; t++) step(direct.world);
+      expect(viaLoop.world.tick).toBe(calls * perCall);
+      expect(hashWorld(viaLoop.world), `${perCall} ticks/appel`).toBe(hashWorld(direct.world));
+    }
+  });
+
+  it('chemin plafonné + abandon : l\'état ne dépend que du nombre de ticks exécutés', () => {
+    const viaLoop = buildWorkload(888);
+    const loop = new FixedStepLoop(viaLoop.world, { stepMs: 10, maxStepsPerAdvance: 5 });
+    const elapsed = [1000, 3, 57, 10_000, 25, 49.5, 70, 0, 12];
+    let ticks = 0;
+    for (const ms of elapsed) ticks += loop.advance(ms);
+    expect(loop.droppedMs).toBeGreaterThan(0);
+    const direct = buildWorkload(888);
+    for (let t = 0; t < ticks; t++) step(direct.world);
+    expect(viaLoop.world.tick).toBe(ticks);
+    expect(hashWorld(viaLoop.world)).toBe(hashWorld(direct.world));
+  });
+
+  it('abandon dès qu\'il reste exactement un pas entier après le plafond', () => {
+    const loop = new FixedStepLoop(new World(1), { stepMs: 10, maxStepsPerAdvance: 2 });
+    expect(loop.advance(30)).toBe(2);
+    expect(loop.accumulatorMs).toBe(0);
+    expect(loop.droppedMs).toBe(10);
   });
 
   it('convertit le temps écoulé en ticks entiers et garde le reste', () => {
