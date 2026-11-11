@@ -172,3 +172,54 @@ R10. **Ajouts hors strict énoncé, avec justification** :
     - Arguments CLI `[graine] [ticks]` de `scripts/headless.ts` : permettent de calculer le
       hash d'une autre graine sans modifier le code (utilisé pour la graine 20261112).
 
+
+## 2026-11-11 — D1 Mise en ligne : cible de déploiement
+
+### Décisions
+
+D1. **Cible : page web statique publique.** Tout tourne dans le navigateur du joueur : pas de
+    serveur, pas de comptes, pas de multijoueur. Hypothèse annoncée au propriétaire, non
+    contredite ; à reconsidérer si une de ces trois exigences apparaît.
+D2. **Hébergement GitHub Pages, dépôt public** (`https://github.com/Pipail69/demiurge`, page
+    `https://pipail69.github.io/demiurge/`). Choix du propriétaire ; l'alternative « code privé +
+    Cloudflare Pages » lui a été proposée. Conséquence assumée : le code source est public.
+D3. **Chemins relatifs** : `base: './'` dans `vite.config.ts`. La page est servie sous
+    `/demiurge/` ; les chemins relatifs fonctionnent là comme à la racine d'un autre hébergeur.
+D4. **Vérification automatique des chemins : script npm `check:dist`**
+    (`scripts/check-dist.ts`), lancé comme étape du workflow après `npm run build`. Choix
+    (mien) : un script plutôt qu'un `grep` en YAML, pour pouvoir le lancer en local et le tester
+    à la main. Il échoue (code 1) sur un `src/href/srcset/poster/data="/…"` dans le HTML, un
+    `url(/…)` dans le CSS, ou un littéral `"/assets/…"` dans le JS. Contrôle négatif fait à la
+    main le 2026-11-11 (HTML modifié en `src="/assets/…"` → échec, code 1) ; non automatisé dans
+    la suite de tests. `npm run build` n'a pas été modifié (il n'appelle pas `check:dist`).
+D5. **Les tests sont la barrière de déploiement** : le workflow a deux jobs ; `deploy` a
+    `needs: build`, et `build` enchaîne `npm ci`, `typecheck`, `lint`, `test`, `build`,
+    `check:dist`, puis `configure-pages` et `upload-pages-artifact`. Un échec à une étape
+    quelconque empêche le déploiement. Déclencheurs : push sur `main` et `workflow_dispatch`.
+    Permissions : `contents: read` globalement ; `pages: write` et `id-token: write` seulement
+    dans le job `deploy`. `concurrency: { group: pages, cancel-in-progress: true }` (choix mien :
+    un run plus récent annule le précédent ; le dernier commit est ce qui compte pour un site
+    sans état. Les annulations apparaîtront comme « cancelled », pas comme des échecs).
+D6. **Versions des actions** (dernières versions publiées, lues le 2026-11-11 sur les pages
+    « Releases » de chaque dépôt, via WebFetch ; l'année exacte n'est pas affichée par ces pages,
+    et l'API REST des dépôts `actions/*` est refusée par le proxy de session, donc non recoupé) :
+    `actions/checkout@v7` (v7.0.1), `actions/setup-node@v7` (v7.1.0),
+    `actions/configure-pages@v6` (v6.0.0), `actions/upload-pages-artifact@v5` (v5.0.0),
+    `actions/deploy-pages@v5` (v5.0.1). Étiquettes majeures flottantes, pas de SHA épinglé
+    (choix mien, usage courant ; l'épinglage par SHA est un durcissement possible).
+D7. **Node 22** dans le workflow (`node-version: 22`, dernière 22.x) : cohérent avec
+    `engines.node >= 22.18` et la version de développement (22.23.4). Cache npm via
+    `actions/setup-node`.
+
+### Décisions OUVERTES (non tranchées), conséquences du choix « navigateur »
+
+a. **Déterminisme inter-navigateurs.** `Math.sin/exp/pow/log` (et autres transcendantes) ne
+   sont pas garantis identiques entre V8, SpiderMonkey et JavaScriptCore. À trancher AVANT T1
+   (bruit de terrain) ; bruit à base d'entiers recommandé. Le critère de déterminisme n'a été
+   vérifié que sur V8 (voir STATE.md).
+b. **SQLite (T2)** devra tourner dans le navigateur, donc en WebAssembly, avec téléchargement
+   du fichier par le joueur ; la même bibliothèque est souhaitable sous Node pour le mode batch.
+c. **Sauvegardes** : stockage local du navigateur ou fichier téléchargé/rechargé — non décidé.
+d. **SharedArrayBuffer indisponible** : GitHub Pages ne permet pas de régler les en-têtes HTTP
+   (COOP/COEP). Transfert Worker → rendu par messages/transferables ; à mesurer en T8/T9 ;
+   migration possible vers un hébergeur à en-têtes réglables.

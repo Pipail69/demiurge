@@ -1,6 +1,6 @@
 # STATE — état du projet
 
-Dernière mise à jour : 2026-11-11, fin de T0 (Fondations) + tour correctif de relecture.
+Dernière mise à jour : 2026-11-11, T0 (Fondations) + tour correctif de relecture, puis D1 (mise en ligne).
 
 ## Ce qui existe
 
@@ -23,6 +23,11 @@ Dernière mise à jour : 2026-11-11, fin de T0 (Fondations) + tour correctif de 
 - `tests/fixtures/workload.ts` — charge de test (3 composants, 4 systèmes : naissance,
   déplacement, métabolisme/mort, bascule de composant). Pas du contenu de jeu.
 - Docs : `docs/models.md`, `docs/decisions.md`, `README.md`.
+- **D1 — mise en ligne** : `base: './'` (vite.config.ts) ; script `npm run check:dist`
+  (`scripts/check-dist.ts`) ; workflow `.github/workflows/deploy.yml` (jobs `build` puis
+  `deploy`, déclenché sur push `main` et manuellement). Dépôt public
+  `https://github.com/Pipail69/demiurge`, page prévue `https://pipail69.github.io/demiurge/`.
+  Le jeu est une page statique : tout tourne dans le navigateur du joueur (decisions.md, D1–D7).
 
 ## Ce qui est testé (chiffres réels du 2026-11-11, après le tour correctif)
 
@@ -69,7 +74,21 @@ Dernière mise à jour : 2026-11-11, fin de T0 (Fondations) + tour correctif de 
   (arrondi de l'accumulateur sous 1e-9), S01 (longueur ≥ 512 Mo), X02 (Math.random rare
   via un alias), X03 (modification au-delà de 10 000 ticks).
 
+## D1 — vérifié le 2026-11-11 (avant push)
+
+En local : `typecheck` sans erreur, `lint` sans erreur, `npm test` 75 tests / 7 fichiers verts
+(3,25 s), hashs épinglés inchangés (tests verts), `npm run build` OK (13 modules, 507 ms ;
+`dist/index.html` 0,51 kB, `dist/assets/index-2mo3M2Qb.js` 12,33 kB), `dist/index.html`
+référence `./assets/index-2mo3M2Qb.js`, `npm run check:dist` : « OK : 2 fichier(s) … sans chemin
+absolu » ; contrôle négatif manuel : échec code 1. Activation de Pages par l'API : REFUSÉE
+(HTTP 403, « Access to this GitHub API path is not permitted through this proxy »).
+Résultats du workflow et de la page en ligne : voir la section suivante.
+
 ## Pièges connus
+
+- **Pages (D1)** : la source Pages doit être « GitHub Actions » (Settings → Pages), sinon le job
+  `deploy` échoue. Pages ne règle pas les en-têtes HTTP (pas de SharedArrayBuffer, voir
+  decisions.md d). Le dépôt est public : tout commit sur `main` est publié si les tests passent.
 
 - **Fonctions mathématiques transcendantes** : `Math.sin/cos/tan/exp/log/pow/atan2/…` ne sont
   PAS garanties identiques au bit près d'un moteur JS à l'autre (la norme laisse
