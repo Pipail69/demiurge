@@ -93,9 +93,21 @@ voir ci-dessus). Aucun défaut dans les fichiers du dépôt. La barrière foncti
 déployé. `https://pipail69.github.io/demiurge/` : non joignable (WebFetch : échec côté site) ;
 affichage du canvas NON vérifié dans un navigateur, ni avant ni après.
 
-**ACTION DU PROPRIÉTAIRE** : Settings → Pages → Build and deployment → Source : « GitHub
-Actions », puis relancer le workflow (Actions → « Déploiement GitHub Pages » → Run workflow, ou
-nouveau push). La vérification de la page en ligne reste à faire après cela.
+**Activation et déploiement réel** : le propriétaire a activé Pages à la main (Settings → Pages →
+Source : GitHub Actions). Un premier relancement manuel (run 43068382377, workflow_dispatch) avait
+encore échoué à `configure-pages`, avant l'activation. Run 43069278003 (workflow_dispatch,
+2026-11-11 17:33:14 UTC, commit 8aa2d2e) : job `build` succès sur toutes les étapes (checkout,
+setup-node, `npm ci`, typecheck, lint, test, build, `check:dist`, configure-pages,
+upload-pages-artifact), job `deploy` succès (deploy-pages@v5). Constaté par WebFetch :
+`https://pipail69.github.io/demiurge/index.html` répond (titre « Demiurge — stub de rendu ») ;
+`https://pipail69.github.io/demiurge/assets/index-2mo3M2Qb.js` répond (bundle minifié d'environ
+12 000 caractères contenant « xoshiro », « getContext », « tick », « hash »). L'URL
+`https://pipail69.github.io/demiurge/` (sans `index.html`) a renvoyé une erreur client à WebFetch
+juste après le déploiement : non expliqué, à revérifier dans un navigateur.
+
+**NON vérifié** : l'exécution du JavaScript et l'affichage du canvas dans un vrai navigateur
+(WebFetch n'exécute pas de JS) ; le déploiement déclenché par un push (seul un déclenchement
+manuel a réussi à ce jour) ; l'URL sans `index.html`.
 
 ## Pièges connus
 

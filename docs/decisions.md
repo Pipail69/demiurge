@@ -231,3 +231,8 @@ D8. **Pages non activé par l'API** : `POST repos/Pipail69/demiurge/pages` (buil
     contournement tenté (en particulier pas de paramètre `enablement` dans `configure-pages`).
     Conséquence : le premier run a échoué à `configure-pages` ; activation manuelle par le
     propriétaire requise (Settings → Pages → Source : GitHub Actions).
+    **Suite (2026-11-11)** : le propriétaire a activé Pages à la main (Source : GitHub Actions) ;
+    run 43069278003 (workflow_dispatch, commit 8aa2d2e) : `build` et `deploy` en succès.
+    `…/demiurge/index.html` et le bundle JS répondent (WebFetch) ; l'URL sans `index.html` a
+    d'abord donné une erreur client (non expliqué) ; exécution JS / canvas et déploiement par
+    push non vérifiés (voir STATE.md).
