@@ -1,0 +1,9 @@
+{
+  // Tout le reste : rendu (DOM), tests et scripts (types Node), fichiers de configuration.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vite.config.ts", "vitest.config.ts"]
+}

@@ -1,0 +1,12 @@
+{
+  // Vérification du cœur SANS DOM et SANS types Node : toute référence à window, document,
+  // process, require, setTimeout, console, etc. échoue à la compilation.
+  // tests/fixtures/ est inclus : la charge de démonstration est exécutée par `npm run headless`
+  // et doit respecter les mêmes contraintes que le cœur.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src/core/**/*.ts", "tests/fixtures/**/*.ts"]
+}
