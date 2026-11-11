@@ -6,6 +6,9 @@
  * petit-boutiste explicite ; les tableaux typés sont lus via une vue Uint8Array, donc dans
  * le boutisme de la plateforme → petit-boutisme EXIGÉ (vérifié à l'exécution).
  *
+ * Format v2 (T1) : après les composants, les paramètres du monde (liste ordonnée) puis la grille
+ * du terrain (présence, dimensions, couches dans l'ordre d'enregistrement).
+ *
  * Ne sont PAS hachés (pas d'état logique) : la capacité allouée, le contenu des tableaux
  * au-delà de highWater, la liste libre au-delà de freeCount, aliveCount (dérivable),
  * la liste des systèmes (c'est du code), l'accumulateur de la boucle (temps réel).
@@ -14,7 +17,7 @@
 import { Sha256 } from './sha256.ts';
 import type { World } from './ecs/world.ts';
 
-export const HASH_FORMAT_VERSION = 1;
+export const HASH_FORMAT_VERSION = 2;
 
 export function detectLittleEndian(): boolean {
   return new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
@@ -54,6 +57,13 @@ class CanonicalWriter {
 
   u64(v: number): void {
     this.rawU64(v);
+    this.written += 8;
+  }
+
+  /** Flottant double, motif de bits IEEE 754 en petit-boutiste explicite. */
+  f64(v: number): void {
+    this.view.setFloat64(0, v, true);
+    this.sha.update(this.scratch);
     this.written += 8;
   }
 
@@ -142,6 +152,37 @@ export function hashWorld(world: World): string {
       const arr = c.fieldArrays[i]!;
       w.section(`field:${c.fieldNames[i]!}`, hw * arr.BYTES_PER_ELEMENT);
       w.elements(arr, hw);
+    }
+  }
+
+  // v2 : paramètres du monde, dans l'ordre de la liste.
+  w.section('params.count', 4);
+  w.u32(world.params.length);
+  for (const p of world.params) {
+    w.section('param.name', p.name.length);
+    w.ascii(p.name);
+    w.section('param.value', 8);
+    w.f64(p.value);
+  }
+
+  // v2 : grille du terrain (absente → présence 0 et rien d'autre).
+  const g = world.grid;
+  w.section('grid.present', 4);
+  w.u32(g === null ? 0 : 1);
+  if (g !== null) {
+    w.section('grid.width', 4);
+    w.u32(g.width);
+    w.section('grid.height', 4);
+    w.u32(g.height);
+    w.section('grid.layers.count', 4);
+    w.u32(g.layers.length);
+    for (const l of g.layers) {
+      w.section('layer.name', l.name.length);
+      w.ascii(l.name);
+      w.section('layer.type', l.type.length);
+      w.ascii(l.type);
+      w.section('layer.data', g.size * l.data.BYTES_PER_ELEMENT);
+      w.elements(l.data, g.size);
     }
   }
   return w.finish();

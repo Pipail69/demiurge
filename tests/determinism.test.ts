@@ -106,20 +106,22 @@ describe('Critère (b) : graines différentes → histoires différentes', () =>
  * du format de hash ou de l'histoire simulée (PRNG, amorçage, ECS, charge de test) : il doit
  * être voulu et justifié par une entrée dans docs/decisions.md, puis les valeurs mises à jour
  * ici, dans STATE.md et dans le rapport.
- * Épinglées le 2026-11-11 après le passage de l'amorçage à SplitMix64.
+ * Épinglées le 2026-11-11 après le passage de l'amorçage à SplitMix64, puis RE-ÉPINGLÉES le
+ * 2026-11-11 (T1) pour le format de hash v2 (sections paramètres et grille ajoutées, version
+ * 1 → 2 ; decisions.md, T1) : l'histoire simulée et les compteurs sont INCHANGÉS.
  */
 describe('Hashs et compteurs de référence épinglés', () => {
   it('graine 20261111 (ticks 0, 1 000, 10 000) et graine 20261112 (tick 10 000)', () => {
     const a = run(20261111, 10_000);
-    expect(a.checkpoints[0]).toBe('e2ea631b4172b7c1b82bc7a5c2dfc0543139f4964adc3f1cb4f17fd698085b7d');
-    expect(a.checkpoints[1]).toBe('618097791ec0143a8a53e2f40e04cf1971040d8ae1670fd9dc18343842c770f5');
-    expect(a.checkpoints[10]).toBe('4078ad80b1094a900272cea9a0e2db48127d60e15a8fdfe76e6c9ebc3fa93cdc');
+    expect(a.checkpoints[0]).toBe('ba2ffb046fbb5be80d5092472b4a079bd8bd55a46cf6751b93bb1fd0672a9e59');
+    expect(a.checkpoints[1]).toBe('95a081bbc6c708309924aba83a76db8527bd52cb5ea99b7f6abbbe772e95aa8f');
+    expect(a.checkpoints[10]).toBe('23438c0b488662788e07a374e34abb5ef25c6e3320926764fc7c339f07dde475');
     expect({ ...a.stats, alive: a.world.entities.aliveCount, highWater: a.world.entities.highWater, draws: a.rngDraws }).toEqual({
       created: 19960, destroyed: 19897, velocityAdded: 28511, velocityRemoved: 16183, peakPopulation: 97,
       alive: 63, highWater: 97, draws: 1547651,
     });
     const b = run(20261112, 10_000);
-    expect(b.checkpoints[10]).toBe('e106632d1d97d73f699d7ce3d3259fbea679a5a0d8553145460d31bb677217c9');
+    expect(b.checkpoints[10]).toBe('0fb538dd7482a0ddb3c715667389d1096d4028ff3ccdf31857cff51b1ca31d59');
     expect({ ...b.stats, alive: b.world.entities.aliveCount, draws: b.rngDraws }).toEqual({
       created: 20055, destroyed: 19983, velocityAdded: 28705, velocityRemoved: 16237, peakPopulation: 105,
       alive: 72, draws: 1549727,

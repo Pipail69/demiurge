@@ -14,7 +14,8 @@
  */
 
 import { Rng } from '../rng.ts';
-import { ComponentStore, type Schema } from './component.ts';
+import type { Grid } from '../grid.ts';
+import { assertValidName, ComponentStore, type Schema } from './component.ts';
 import { EntityAllocator, entityIndex, type Entity } from './entities.ts';
 
 export type System = (world: World) => void;
@@ -26,6 +27,16 @@ export interface WorldOptions {
 
 export const DEFAULT_INITIAL_CAPACITY = 64;
 
+/**
+ * Paramètre du monde : nom ASCII + valeur f64 finie. Les paramètres qui gouvernent l'évolution
+ * future du monde (taille, coefficients, durée de l'année…) font partie de son état et sont
+ * hachés dans l'ordre de la liste (docs/models.md § Hash v2).
+ */
+export interface WorldParam {
+  readonly name: string;
+  readonly value: number;
+}
+
 export class World {
   readonly seed: number;
   tick = 0;
@@ -33,6 +44,10 @@ export class World {
   readonly entities: EntityAllocator;
   readonly components: ComponentStore[] = [];
   readonly systems: System[] = [];
+  /** Paramètres du monde, liste ORDONNÉE (ordre d'ajout = ordre de hachage). */
+  readonly params: WorldParam[] = [];
+  /** Terrain : grille dense optionnelle (ressource du monde, pas des entités). */
+  grid: Grid | null = null;
 
   constructor(seed: number, options: WorldOptions = {}) {
     this.rng = new Rng(seed); // valide la graine (uint32)
@@ -47,6 +62,26 @@ export class World {
     const store = new ComponentStore<S>(this.components.length, name, schema, this.entities.capacity);
     this.components.push(store as unknown as ComponentStore);
     return store;
+  }
+
+  /** Ajoute un paramètre (nom ASCII unique, valeur finie ; −0 normalisé en +0). */
+  addParam(name: string, value: number): void {
+    assertValidName(name, 'Nom de paramètre');
+    if (!Number.isFinite(value)) throw new RangeError(`Paramètre « ${name} » : valeur non finie ${String(value)}`);
+    for (const p of this.params) if (p.name === name) throw new Error(`Paramètre « ${name} » déjà défini`);
+    this.params.push(Object.freeze({ name, value: value === 0 ? 0 : value }));
+  }
+
+  /** Valeur d'un paramètre ; erreur s'il est absent. */
+  param(name: string): number {
+    for (const p of this.params) if (p.name === name) return p.value;
+    throw new Error(`Paramètre « ${name} » absent`);
+  }
+
+  /** Attache la grille du terrain (une seule fois). */
+  setGrid(grid: Grid): void {
+    if (this.grid !== null) throw new Error('setGrid : le monde a déjà une grille');
+    this.grid = grid;
   }
 
   addSystem(system: System): void {

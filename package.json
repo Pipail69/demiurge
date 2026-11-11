@@ -8,7 +8,10 @@
     "test": "vitest run",
     "build": "npm run typecheck && vite build",
     "check:dist": "node scripts/check-dist.ts",
-    "headless": "node scripts/headless.ts"
+    "headless": "node scripts/headless.ts",
+    "worldgen": "node scripts/worldgen.ts",
+    "bench:worldgen": "node scripts/bench-worldgen.ts",
+    "map:png": "node scripts/map-png.ts"
   },
   "license": "UNLICENSED",
   "devDependencies": {

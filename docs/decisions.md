@@ -236,3 +236,95 @@ D8. **Pages non activé par l'API** : `POST repos/Pipail69/demiurge/pages` (buil
     `…/demiurge/index.html` et le bundle JS répondent (WebFetch) ; l'URL sans `index.html` a
     d'abord donné une erreur client (non expliqué) ; exécution JS / canvas et déploiement par
     push non vérifiés (voir STATE.md).
+
+## 2026-11-11 — T1 Monde
+
+### Décisions du propriétaire et de la session principale (imposées, consignées ici)
+
+W1. **Aucune fonction mathématique non exacte entre moteurs JS dans `src/core`** (décision du
+    propriétaire, recommandation acceptée ; tranche la décision ouverte D1-a pour le cœur).
+    Autorisé : `+ − × ÷`, `Math.sqrt`, `Math.SQRT2`, `Math.fround`, `Math.imul`,
+    `Math.floor/ceil/round/trunc/abs/min/max/sign`, entiers, bit à bit, tris de tableaux typés.
+    Interdit : `Math.sin/cos/tan/asin/acos/atan/atan2/sinh/cosh/tanh/asinh/acosh/atanh/exp/expm1/
+    log/log2/log10/log1p/pow/cbrt/hypot` et `**`/`**=`. Outillage : règles ESLint sur `src/core/**`
+    et `tests/fixtures/**` + test statique `tests/forbidden-math.test.ts` (commentaires et chaînes
+    retirés, contrôles négatif et positif). **Le lint et ce test restent des garde-fous
+    contournables** (alias `const M = Math`, `Math['sin']`, `globalThis.Math`…), voir STATE.md
+    décision ouverte c. Les tests (`tests/`) peuvent utiliser `Math.sin` (mesure d'erreur).
+W2. **Grille = ressource dense du monde**, couches = tableaux typés ENTIERS nommés dans un tableau
+    ordonné ; `World.grid` optionnel. Types de couches : ceux proposés par la session principale,
+    sans ajustement.
+W3. **Paramètres de génération dans l'état** : `World.params`, liste ordonnée (nom ASCII, f64),
+    hachée. −0 normalisé en +0 et valeurs non finies refusées à l'ajout (choix mien : le hash
+    lit les octets bruts).
+W4. **Format de hash v2** (`HASH_FORMAT_VERSION` = 2) : sections paramètres puis grille après les
+    composants (models.md § 4). **Conséquence : tous les hashs épinglés de T0 changent** alors que
+    l'histoire simulée est identique (compteurs inchangés, tests verts) :
+    graine 20261111 tick 0 `e2ea631b…` → `ba2ffb046fbb5be80d5092472b4a079bd8bd55a46cf6751b93bb1fd0672a9e59`,
+    tick 1 000 `61809779…` → `95a081bbc6c708309924aba83a76db8527bd52cb5ea99b7f6abbbe772e95aa8f`,
+    tick 10 000 `4078ad80…` → `23438c0b488662788e07a374e34abb5ef25c6e3320926764fc7c339f07dde475` ;
+    graine 20261112 tick 10 000 `e106632d…` → `0fb538dd7482a0ddb3c715667389d1096d4028ff3ccdf31857cff51b1ca31d59`.
+W5. **Monde-île** : océan forcé sur tout le pourtour (terme de bord + relèvement du niveau de la
+    mer au maximum du bord si besoin, assertion, test sur 60 graines).
+W6. **Un seul hémisphère, nord en haut, « climat compressé »** (latitude linéaire par ligne).
+W7. **Érosion par incision (stream power law) sans dépôt** ; matière exportée hors du système,
+    comptée ; conservation stricte à partir du tick 0, la genèse étant la cause de l'état initial.
+W8. **Priority-Flood + ε** (Barnes et al. 2014) avec ε = 1 cm entier ; file = tas binaire maison,
+    clé (niveau, index).
+W9. **Saisons sans effet sur l'humidité ni les biomes** en T1 (seule la température courante varie) ;
+    pas d'événement de changement de saison (journal = T2).
+W10. **Web Worker toujours reporté** ; génération sur le fil principal : la page est bloquée
+     pendant la génération (≈ 0,5–0,7 s mesuré dans Chrome headless, 512×512).
+W11. **Graine de la page** lue dans `?seed=` ; défaut 20261111 (choix mien : graine de démo de T0).
+
+### Ambiguïtés tranchées et choix d'ingénierie (miens)
+
+W12. **Gradients du bruit** : 8 directions (±1,0), (0,±1), (±1,±1), non normalisées ; tirage
+     `nextU32() >>> 29` (exactement un tirage par nœud, pas de rejet).
+W13. **Sinus de Bhāskara** utilisé pour la latitude (P2(sin φ) et amplitude saisonnière) et le
+     cycle saisonnier ; erreur absolue max mesurée 0,001632.
+W14. **Température au niveau de la mer calibrée** sur North, Cahalan & Coakley (1981), tableau 1
+     (T0 = 14,9 °C, T2 = −28,0 °C) — source trouvée et vérifiée (texte lu), pas « inventé ».
+     Amplitude saisonnière A1 = 15,5 °C, même source (terme P1).
+W15. **Glace de mer** : océan dont la température moyenne annuelle ≤ −1,9 °C (NOAA) et non −1,8 °C
+     (valeur de l'énoncé, « à vérifier ») : la page NOAA lue indique « about -1.9 degrees Celsius ».
+     Conséquence assumée : la banquise suit exactement une ligne de latitude (l'océan n'a pas de
+     relief) → bord horizontal rectiligne sur la carte.
+W16. **Lacs** : profondeur ≥ 3 m ET composante ≥ 9 cellules (le seuil de taille n'était pas dans
+     l'énoncé ; ajouté contre le « mouchetis » de lacs d'une cellule). Tous les lacs sont
+     exoréiques (ils s'écoulent vers la mer).
+W17. **Érosion** : pas d'incision dans les dépressions ; une cellule de terre reste ≥ 1 cm (pas de
+     recul du trait de côte) ; abaissement borné à (aval + 1 cm).
+W18. **Humidité** : altitude de la masse d'air avec descente limitée (`airDescentCm`) et mélange
+     méridien vertical (`humidityMixRadiusRef`) — deux ajouts au schéma de l'énoncé, introduits
+     après inspection visuelle (sans eux : cartes rayées, une pluie orographique à chaque bosse).
+     L'humidité stockée est un indice de précipitations relatif (255 = plaine côtière sous air
+     saturé), pas une humidité relative de l'air.
+W19. **Apport local** = max(0, humidité − 30) sur terre et lacs, 0 sur l'océan.
+W20. **Coefficients d'humidité ramenés à la taille** (référence 512) ; K d'érosion NON ramené
+     (le relief dépend donc un peu de la résolution ; non gênant en T1).
+W21. **D8 exact sans racine** (comparaison des carrés des baisses pondérés 2:1) ; ordre de
+     départage E, SE, S, SO, O, NO, N, NE.
+W22. **Crochet `onStage`** dans `generateWorld` : permet la mesure par étape depuis l'extérieur sans
+     dupliquer le pipeline ; ne doit pas modifier le monde (contrat documenté, non vérifiable).
+W23. **`generateWorld` exige tick 0 et un monde sans terrain**, refuse un nom de paramètre déjà présent.
+W24. **Taille** : côtés de 16 à 4 096 cellules (W·H ≤ 2^24 → débits u32 sans dépassement).
+
+### Paramètres inventés (valeurs par défaut, `src/core/world/params.ts`)
+
+W25. Grille 512×512 (énoncé). Bruit : `noiseBaseCells` 3, `noiseOctaves` 7. Relief :
+     `landFraction` 0,40, `edgeMarginFraction` 0,12, `edgeDrop` 1, `maxAltitudeM` 5 000,
+     `oceanDepthM` 4 000, profil h². Érosion : `erosionK` 0,002, `erosionIterations` 8.
+     Hydrologie : `fillEpsilonCm` 1, `lakeMinDepthCm` 300, `lakeMinCells` 9,
+     `runoffHumidityThreshold` 30, `riverAreaFraction` 0,0006. Climat : `latNorthDeg` 66,
+     `latSouthDeg` 0, `ticksPerYear` 7 200, décalage saisonnier 1/8 d'année. Humidité :
+     `moistMax` 10⁶, `evapRef` 3 000, `rainBaseRef` 450, `rainOro` 30, `airDescentCm` 2 000,
+     `humidityMixRadiusRef` 3. Biomes (centièmes de °C / humidité) : glace < −1 000, toundra
+     < −200, désert H < 40, taïga < 400, tropical ≥ 2 000, forêt tempérée H ≥ 110, forêt
+     tropicale sèche H ≥ 100, forêt tropicale humide H ≥ 180. Palette : couleurs choisies à la main.
+W26. **Réglage à l'œil** (cartes PNG de 4 graines regardées, hors dépôt) : premier jeu
+     (`latNorthDeg` 80, `latSouthDeg` 5, `rainOro` 160, `rainBaseRef` 600, sans altitude de la
+     masse d'air ni mélange) → moitié de la carte en glace, déserts sur 30 % des terres, rayures
+     horizontales ; valeurs ci-dessus retenues après 4 itérations.
+W27. Tolérances de test inventées : fraction émergée ±0,04 ; |moyenne du bruit| < 0,02 ;
+     |moyenne du cycle| < 10⁻¹² ; contraintes « physiques » de la table indépendante des biomes.
