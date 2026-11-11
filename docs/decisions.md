@@ -223,3 +223,11 @@ c. **Sauvegardes** : stockage local du navigateur ou fichier téléchargé/recha
 d. **SharedArrayBuffer indisponible** : GitHub Pages ne permet pas de régler les en-têtes HTTP
    (COOP/COEP). Transfert Worker → rendu par messages/transferables ; à mesurer en T8/T9 ;
    migration possible vers un hébergeur à en-têtes réglables.
+
+### Écart constaté à l'exécution (2026-11-11)
+
+D8. **Pages non activé par l'API** : `POST repos/Pipail69/demiurge/pages` (build_type=workflow)
+    → HTTP 403 « Access to this GitHub API path is not permitted through this proxy ». Pas de
+    contournement tenté (en particulier pas de paramètre `enablement` dans `configure-pages`).
+    Conséquence : le premier run a échoué à `configure-pages` ; activation manuelle par le
+    propriétaire requise (Settings → Pages → Source : GitHub Actions).

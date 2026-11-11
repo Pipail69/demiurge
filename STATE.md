@@ -82,7 +82,20 @@ En local : `typecheck` sans erreur, `lint` sans erreur, `npm test` 75 tests / 7 
 référence `./assets/index-2mo3M2Qb.js`, `npm run check:dist` : « OK : 2 fichier(s) … sans chemin
 absolu » ; contrôle négatif manuel : échec code 1. Activation de Pages par l'API : REFUSÉE
 (HTTP 403, « Access to this GitHub API path is not permitted through this proxy »).
-Résultats du workflow et de la page en ligne : voir la section suivante.
+
+Workflow, premier run (commit a032662, run 43067466916, 2026-11-11, 17:22:04 → 17:23:14 UTC,
+≈ 70 s, conclusion **failure**) : job `build` — checkout, setup-node, `npm ci`, typecheck, lint,
+test, build, `check:dist` : succès sur GitHub ; `actions/configure-pages@v6` : ÉCHEC (« Get Pages
+site failed. Please verify that the repository has Pages enabled and configured to build using
+GitHub Actions … Error: Not Found ») ; upload-pages-artifact ignoré ; job `deploy` ignoré
+(skipped). Cause : Pages n'est pas activé sur le dépôt (l'activation par l'API a été refusée,
+voir ci-dessus). Aucun défaut dans les fichiers du dépôt. La barrière fonctionne : rien n'a été
+déployé. `https://pipail69.github.io/demiurge/` : non joignable (WebFetch : échec côté site) ;
+affichage du canvas NON vérifié dans un navigateur, ni avant ni après.
+
+**ACTION DU PROPRIÉTAIRE** : Settings → Pages → Build and deployment → Source : « GitHub
+Actions », puis relancer le workflow (Actions → « Déploiement GitHub Pages » → Run workflow, ou
+nouveau push). La vérification de la page en ligne reste à faire après cela.
 
 ## Pièges connus
 
